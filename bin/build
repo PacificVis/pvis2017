@@ -389,9 +389,15 @@ class Context
     end
   end
 
+  def _fix_href(url)
+    s = url.to_s
+    # Add BASE to root-relative paths that don't already have it
+    (s.start_with?('/') && !s.start_with?('//') && !s.start_with?(BASE)) ? "#{BASE}#{s}" : s
+  end
+
   def link_to(name_or_url, url_or_opts = nil, opts = {}, &block)
     if block_given?
-      href      = name_or_url
+      href      = _fix_href(name_or_url)
       link_opts = url_or_opts.is_a?(Hash) ? url_or_opts : {}
       saved = @_erbout; @_erbout = ''
       block.call
@@ -400,10 +406,10 @@ class Context
       @_erbout << result  # concat for <% link_to do %> style (preprocessed from <%=)
       result
     elsif url_or_opts.nil? || url_or_opts.is_a?(Hash)
-      href = name_or_url.to_s
+      href = _fix_href(name_or_url)
       "<a href=\"#{CGI.escapeHTML(href)}\">#{name_or_url}</a>"
     else
-      href = url_or_opts.to_s
+      href = _fix_href(url_or_opts)
       "<a#{build_attrs({ href: href }.merge(opts))}>#{name_or_url}</a>"
     end
   end
@@ -498,7 +504,6 @@ def make_page(title:, content:, banner_image: 'dongdaemun.jpg', banner_size: :sh
     <body>
       <div id="wrap">
         <div id="header">
-          <div class="strip"></div>
           <div id="title">
             <a href="#{BASE}/"><img src="#{BASE}/images/pacific_vis_logo.svg" alt="IEEE PacificVis 2017"></a>
           </div>
