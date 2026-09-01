@@ -130,12 +130,13 @@ a:active{
 #header{
     height: 74px;
     position: relative;
+    display: flex;
+    align-items: center;
     color: #474747;
     font-weight: bold;
 }
 
 #title{
-    margin-top: 15px;
     margin-left: 0px;
     font-size: 19px;
     text-transform: uppercase;
