@@ -103,19 +103,19 @@ a:hover {
 #header {
   height: 74px;
   position: relative;
-  display: flex;
-  align-items: center;
   color: #474747;
   font-weight: bold; }
 
 #title {
+  margin-top: 15px;
   margin-left: 0px;
   font-size: 19px;
-  text-transform: uppercase;
-  line-height: 0; }
+  text-transform: uppercase; }
+  #title a {
+    display: block;
+    line-height: 0; }
   #title img {
-    height: 43px;
-    display: block; }
+    height: 43px; }
 
 ul#gnb {
   position: absolute;
