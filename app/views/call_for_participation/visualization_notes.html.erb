@@ -1,0 +1,36 @@
+<p>
+PacificVis 2017 features a short paper track, called "Visualization Notes". The purpose of this track is to encourage young researchers to present their work and discuss with participants including senior researchers there. The submissions can be late-breaking results and work in progress, while they should be novel enough to attract interest from the visualization community.
+</p>
+<p>
+  Short paper submissions for the "Visualization Notes" can be up to <strong>a maximum of five (5) pages</strong> in length, with the caveat that an optional fifth page can only contain references. All submitted papers will be peer-reviewed through a single-stage process by the international program committee. The suggested topics for the "Visualization Notes" are the same as those for full papers, while the ideas there can be relatively small as compared with those for full papers. Nonetheless, the "Visualization Notes" are still expected to contain technically interesting results in theories and/or applications. Please note that all submissions must be original and thus have not been published elsewhere. Accepted short papers will be included in the conference proceedings and in <strong>IEEE digital library</strong>.
+</p>
+
+<%= subheader("Important Dates") %>
+<% if @deadlines %>
+  <%= render :partial=>'deadlines_table', :locals=>{deadlines: @deadlines} %>
+<% end %>
+
+
+
+<%= subheader("Submission") %>
+<p>
+  Original unpublished short paper submissions of up to 4 pages (two-column, single-spaced, 9 point font, including figures and tables) without references or 5 pages including references are invited. Manuscripts must be written in English, and follow the <%= link_to "formatting guidelines", @formatting_guideline %>. Reviewing will be double blind, so please remove all author and affiliation information from submissions and supplemental files. Please substitute your paper's ID number for the author name. Papers should be submitted electronically in Adobe PDF format. Please provide supplemental videos in QuickTime MPEG-4 or DivX version 5, and use TIFF, JPEG, or PNG for supplemental images.
+</p>
+
+<%= submission_system_button %>
+
+<%= subheader("Contact") %>
+<p>
+  For questions regarding Visualization Notes, please do not hesitate to contact the chairs directly via <a href="mailto:note@pvis.org">note@pvis.org</a>
+</p>
+<h3>Visualization Notes Chairs:</h3>
+<p class="no_top_margin">
+  Yun Jang, Sejong University, Korea<br>
+  Naohisa Sakamoto, Kobe University, Japan
+</p>
+
+<%if !@note_committee.nil? %>  
+  <h3>Visualization Notes Committee:</h3>
+  <br>
+    <%= render partial: "committee_list", :locals=>{:committees=> @note_committee} %>
+<% end %>

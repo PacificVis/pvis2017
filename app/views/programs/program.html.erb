@@ -1,0 +1,39 @@
+
+<ul class="program_author_list">
+  <% @program[:authors].each do |author| %>
+  <li>
+    <span class="name"><%= author[:name] %></span>
+    
+    <% if !author[:email].nil? %>
+      <span class="email"><%= author[:email].sub("@", " (at) ") %></span>
+    <% end %>
+    
+    <div class="affiliation"><%= author[:affiliation] %></div>
+  </li>
+  <% end %>
+</ul>
+
+
+    <% if !@program[:video].nil? %>
+      <div class="footage">
+        <iframe src="<%= @program[:video] %>" width="100%" height="400" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe>
+      </div>
+    <% elsif !@program[:link].nil? %>
+      <div class="footage">
+        <%= link_to "→External Link", @program[:link], :class=>"link", :target=>"_blank" %>
+      </div>
+    <% elsif !@program[:image].nil? %>
+      <div class="footage">
+        <%= image_tag @program[:image] %>
+      </div>
+      <% if !@program[:pdf].nil? %>
+        <div class="footage">
+          <%= link_to "→See in PDF", program_download_path(@program[:pdf]), :class=>"link", :target=>"_blank" %>
+        </div>
+      <% end %>
+    <% end %>
+
+<h3>Abstract</h3>
+<p>
+  <%= @program[:abstract]%>
+</p>

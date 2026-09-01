@@ -1,0 +1,35 @@
+<li>
+
+    <div class="program_element">
+      <%= content_tag :span, program[:type], :class=>["program_type", !program[:type].nil?? program[:type].downcase : nil] %>
+  <%= link_to program_path(program[:id]) do%>
+    <div class="title">
+      <%= program[:title] %>
+    </div>
+  <% end %>
+    <div class="authors">
+      <%= program[:authors].map{|a| a[:name] }.to_sentence%>
+    </div>
+
+    <% if !program[:image].nil? %>
+      <div class="footage">
+        <%= image_tag program[:image] %>
+      </div>
+      <% if !program[:pdf].nil? %>
+        <div class="footage">
+          <%= link_to "→See in PDF", program_download_path(program[:pdf]), :class=>"link", :target=>"_blank" %>
+        </div>
+      <% end %>
+    <% end %>
+    
+    <% if !program[:video].nil? %>
+      <div class="footage">
+        <iframe src="<%= program[:video] %>" width="100%" height="400" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe>
+      </div>
+    <% elsif !program[:link].nil? %>
+      <div class="footage">
+        <%= link_to "→Go to the Interactive Story", program[:link], :class=>"link", :target=>"_blank" %>
+      </div>
+  <% end %>
+  </div>
+</li>

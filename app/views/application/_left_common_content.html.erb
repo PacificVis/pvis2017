@@ -1,0 +1,110 @@
+
+
+<% if false %>
+<%= subheader("Deadlines") %>
+<% if @upcoming_deadlines.nil? %>
+  <p>Upcoming deadlines will be determined soon.</p>
+<% else %>
+  <ul class="important_dates">
+    <% @upcoming_deadlines.each do |d| %>
+      <%= content_tag :li, :class=> (Time.now - Time.parse(d[:time]) > 0 ? "overline" : nil ) do %>
+        <% if d[:link].nil? %>
+          <div class='date'>
+            <%= d[:time] %>
+          </div>
+          <div class='description'>
+            <%= d[:name].capitalize %>
+          </div>
+        <% else %>
+          <%= link_to d[:link] do %>
+            <div class='date'>
+              <%= d[:time] %>
+            </div>
+            <div class='description'>
+              <%= d[:name].capitalize %>
+            </div>
+          <% end %>
+        <% end %>
+      <% end %>
+    <% end %>
+  </ul>
+<% end %>
+<% end %>
+
+<%= subheader("News") %>
+<ul class="important_dates">
+  <li>
+    Jun 17] <%= link_to "Visual Storytelling Contest", "/programs#contest"%> videos and materials are updated.
+  </li>
+  <!--
+  <li>
+    Apr 17] We announce <%= link_to "10 years of PacificVis", "/showcases/index.html" %> showcase!
+  </li>-->
+  <li>
+      Apr 14] Workshops (PacificVAST) <%= link_to "schedules", programs_path(:anchor=>"workshops") %> are updated.
+  </li>
+    <li>
+        Mar 7] Conference <%= link_to "program and keynote talks", programs_path %> are updated.
+    </li>
+    <li>
+      Feb]
+        <%= link_to "Registration", registration_path, :target=>"_blank" %> is now available!
+    </li>
+    <li>
+      Feb] <%= link_to "Accommodation information", venue_path(:anchor=>"accommodations") %> is updated.
+    </li>
+</ul>
+
+<%= subheader("Sponsors") %>
+<% if !@sponsors.nil? %>
+  <%= content_tag :ul, :class=>"sponsor_list" do %>
+    <% @sponsors.each do |s| %>
+      <%= content_tag :li do %>
+        <%= link_to s[:url] do %>
+          <%= image_tag s[:thumbnail], :alt=>s[:name] %>
+        <% end %>
+      <% end %>
+    <% end %>
+  <% end %>
+<% end %>
+
+<% if !@previous.nil? %>
+  <%= subheader("Previous Events") %>
+  <ul class="previous_years">
+    <% @previous.each do |p| %>
+      <%= link_to p.url do %>
+      <li>
+        <div class='year'><%= p.year %></div>
+        <div class='location'><%= p.location %></div>
+        <div class='date'><%= "#{p.from.strftime("%b %d")} - #{p.to.strftime("%b %d")}" %></div>
+      </li>
+      <% end %>
+    <% end %>
+  </ul>
+<% end %>
+
+<% if !@channels.nil? %>
+  <%= subheader("Channels") %>
+  <ul class="channel_list">
+    <% @channels.each do |channel| %>
+      <li class="channel">
+        <%= link_to channel[:url], :target=>"_blank" do %>
+        <table>
+          <tr>
+            <td class="logo">
+              <%= image_tag channel[:image], :class=>(channel[:size] == :big ? "big" : "") %>
+            </td>
+            <td class="content">
+              <%= content_tag :div, channel[:name], :class=>"name" %>
+              <%= content_tag :div, channel[:description], :class=>"description" %>
+            </td>
+          </tr>
+        </table>
+        <% end %>
+      </li>
+    <% end %>
+  </ul>
+<% end %>
+
+<%= subheader("Logo") %>
+You can download the logo <%= link_to "here", "/files/ieee_pacific_vis_logos.zip", {target: "_blank"} %>.

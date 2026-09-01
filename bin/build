@@ -1,0 +1,752 @@
+#!/usr/bin/env ruby
+# bin/build  –  Generate GitHub Pages static site for PacificVis 2017
+# Usage:  ruby bin/build [BASE_URL]
+#   BASE_URL defaults to /pvis2017 (GitHub Pages project path)
+#   Set BASE_URL='' to build for serving at root.
+
+require 'erb'
+require 'yaml'
+require 'csv'
+require 'sqlite3'
+require 'fileutils'
+require 'date'
+require 'cgi'
+
+ROOT   = File.expand_path('..', __dir__)
+OUTPUT = File.join(ROOT, 'docs')
+DATA   = File.join(ROOT, 'app/data')
+VIEWS  = File.join(ROOT, 'app/views')
+ASSETS = File.join(ROOT, 'app/assets')
+PUBLIC = File.join(ROOT, 'public')
+BASE   = ENV.fetch('BASE_URL', '/pvis2017')
+
+SASS_BIN = [
+  File.join(ROOT, 'vendor/bundle/ruby/2.4.0/gems/sass-3.4.22/bin/sass'),
+  File.join(ROOT, 'vendor/bundle/ruby/3.0.0/gems/sass-3.4.22/bin/sass'),
+  `which sass 2>/dev/null`.strip
+].find { |p| !p.empty? && File.exist?(p) }
+
+# ── String / Array extensions ─────────────────────────────────────────────────
+class String
+  def html_safe; self; end
+end
+
+class Array
+  def to_sentence
+    case size
+    when 0 then ''
+    when 1 then first.to_s
+    when 2 then "#{first} and #{last}"
+    else "#{self[0..-2].join(', ')}, and #{last}"
+    end
+  end
+end
+
+# ── Structs for DB objects ────────────────────────────────────────────────────
+ChairThumb = Struct.new(:url_str) do
+  def exists?; !url_str.nil?; end
+  def url(_style = :original); url_str; end
+end
+
+Chair = Struct.new(:id, :name, :affiliation, :thumb_url) do
+  def thumbnail; ChairThumb.new(thumb_url); end
+end
+
+ChairGroup = Struct.new(:id, :name, :email, :chairs)
+PreviousConf = Struct.new(:year, :location, :url, :from, :to)
+
+# ── File helpers ──────────────────────────────────────────────────────────────
+def find_thumb(type, id, style = nil)
+  dir = File.join(PUBLIC, 'files', type, 'thumbnails')
+  return nil unless File.directory?(dir)
+  # Prefer the style-specific file (e.g. "1_thumb_xxx.png"), exclude retina/original
+  pattern = style ? "#{id}_#{style}_*" : "#{id}_*"
+  files = Dir.glob(File.join(dir, pattern))
+              .reject { |f| f =~ /_(original|retina)_/ }
+  files = Dir.glob(File.join(dir, pattern)) if files.empty?
+  return nil if files.empty?
+  f = files.max_by { |x| File.mtime(x) }
+  "#{BASE}/files/#{type}/thumbnails/#{File.basename(f)}"
+end
+
+def load_csv_file(filename)
+  raw = File.read(File.join(DATA, filename), encoding: 'UTF-8')
+  raw.gsub!(/\A\xEF\xBB\xBF/, '')  # strip BOM
+  CSV.parse(raw, headers: true, liberal_parsing: true)
+end
+
+def load_program(venue)
+  load_csv_file("program_list_#{venue}.csv").map do |row|
+    id = row[0]&.strip
+    next if id.nil? || id.empty?
+    type = case id
+           when /\Apapers/ then 'Paper'
+           when /\Anotes/  then 'Note'
+           when /\Aposters/ then 'Poster'
+           when /\Acontest/ then 'Contest'
+           else 'Unclassified'
+           end
+    authors = (1..10).map do |i|
+      given  = row["Given name #{i}"]&.strip
+      family = row["Family name #{i}"]&.strip
+      next if given.nil? || given.empty?
+      { name: "#{given} #{family}".strip,
+        email: row["Email address #{i}"],
+        affiliation: row["Primary Affiliation #{i} - Institution"] }
+    end.compact
+    { id: id, title: row['title'], type: type,
+      abstract: row['abstract'], authors: authors }
+  end.compact
+end
+
+def load_contest
+  load_csv_file('program_list_contests.csv').map do |row|
+    id = row[0]&.strip
+    next if id.nil? || id.empty?
+    authors = (row['authors'] || '').split(',').map { |a| { name: a.strip } }
+    { id: id, title: row['title'], type: 'Contest',
+      abstract: row['abstract'], authors: authors,
+      video: row['video'], link: row['link'],
+      pdf: row['pdf'], image: row['image'] }
+  end.compact
+end
+
+def load_committee(filename)
+  load_csv_file(filename).map do |row|
+    fn = row['first_name']&.strip
+    ln = row['last_name']&.strip
+    next if fn.nil? && ln.nil?
+    { name: "#{fn} #{ln}".strip, affiliation: row['affiliation'] }
+  end.compact
+end
+
+def get_deadlines(key)
+  (DATES[key] || {}).to_a.map { |name, time| { name: name, time: time.to_s } }
+end
+
+# ── Load SQLite data ──────────────────────────────────────────────────────────
+db = SQLite3::Database.new(File.join(ROOT, 'db/development.sqlite3'))
+db.results_as_hash = true
+
+chairs_by_id = {}
+db.execute('SELECT id, name, affiliation FROM chairs ORDER BY id') do |r|
+  chairs_by_id[r['id']] = Chair.new(r['id'], r['name'], r['affiliation'],
+                                     find_thumb('chairs', r['id'], 'thumb'))
+end
+
+CHAIR_GROUPS = []
+db.execute('SELECT id, name, email FROM chair_groups ORDER BY position, id') do |r|
+  members = []
+  db.execute(
+    'SELECT chair_id FROM chair_assignments WHERE chair_group_id=? ORDER BY COALESCE(position,999), id',
+    [r['id']]
+  ) { |a| members << chairs_by_id[a['chair_id']] }
+  CHAIR_GROUPS << ChairGroup.new(r['id'], r['name'], r['email'].to_s, members.compact)
+end
+
+SPONSORS = []
+db.execute('SELECT id, name, url FROM sponsors ORDER BY COALESCE(position,999), id') do |r|
+  SPONSORS << { name: r['name'], url: r['url'].to_s,
+                thumbnail: find_thumb('sponsors', r['id']) }
+end
+
+PREVIOUS = []
+db.execute('SELECT year, location, url, "from", "to" FROM previous_conferences ORDER BY year DESC') do |r|
+  PREVIOUS << PreviousConf.new(r['year'], r['location'], r['url'],
+                                Date.parse(r['from']), Date.parse(r['to']))
+end
+
+# ── Static data ───────────────────────────────────────────────────────────────
+DATES     = YAML.load_file(File.join(DATA, 'dates.yaml'))
+WORKSHOPS = YAML.load_file(File.join(DATA, 'workshops.yaml'))
+TOPICS    = YAML.load_file(File.join(DATA, 'topics.yaml'))
+FEES      = begin
+  yml = YAML.load_file(File.join(DATA, 'fee.yaml'))
+  yml.keys.map { |k| { type: k, early: yml[k]['early'], late: yml[k]['late'] } }
+rescue StandardError
+  []
+end
+
+ACCOMMODATIONS = load_csv_file('accomodation.csv').map do |row|
+  { name: row['name'], url: row['link'], type: row['type'],
+    subway: row['subway'], station: row['station'], time: row['time'] }
+end
+
+PAPERS   = load_program('papers')
+NOTES    = load_program('notes')
+POSTERS  = load_program('posters')
+CONTESTS = load_contest
+ALL_PROGRAMS = PAPERS + NOTES + POSTERS + CONTESTS
+
+SESSION_ROWS = load_csv_file('sessions.csv').map do |row|
+  id = row['id']&.strip
+  next if id.nil? || id.empty?
+  { session: row[0], id: id }
+end.compact
+
+SESSION_ORDERED = %w[
+  Graphs\ and\ Networks\ I
+  Immersion,\ VR,\ and\ Interaction
+  Geospatial\ Visualization\ and\ Applications
+  Multidimensional\ Data,\ Multifields,\ and\ Uncertainty
+  Volume\ Visualization
+  Graphs\ and\ Networks\ II
+  Text,\ Annotation,\ and\ Coding
+  Medical,\ Biological,\ and\ Archaeological\ Visualization
+  Perception,\ Quality,\ and\ Scalability
+].map { |s| s.gsub('\\ ', ' ') }
+
+SESSION_DICT = Hash.new { |h, k| h[k] = [] }
+SESSION_ROWS.each do |sr|
+  found = (PAPERS + NOTES).find { |p| p[:id] == sr[:id] }
+  SESSION_DICT[sr[:session]] << found if found
+end
+
+PAPER_PC = load_committee('paper_pc_list.csv')
+NOTE_PC  = load_committee('note_pc_list.csv')
+
+UPCOMING = (DATES['upcoming'] || {}).to_a.map { |name, val|
+  arr = Array(val)
+  { name: name, time: arr[0].to_s, link: arr[1] }
+}
+
+CHANNELS = [
+  { name: 'Facebook', size: :small, image: 'facebook.png',
+    description: 'Official Facebook Page',
+    url: 'https://www.facebook.com/pacificvis/' },
+  { name: 'Twitter',  size: :small, image: 'twitter.png',
+    description: 'Official Twitter Account',
+    url: 'https://twitter.com/PacificVis' },
+  { name: 'WeChat',   size: :big,   image: 'wechat_qr.png',
+    description: '(亚太地区可视化会议微信公众号)',
+    url: '#' }
+]
+
+KEYNOTES = [
+  { day: 2,
+    presenter:   'David Ebert',
+    affiliation: 'Purdue University',
+    thumbnail:   'david_ebert.jpg',
+    title:       'Changing the World with Visual Analytics',
+    abstract: <<~TXT.strip,
+      To solve the world's challenges requires not only advancing computer science and big data analytics
+      but requires new analysis and decision-making environments that effectively couple human decision
+      making with advanced, guided analytics in a human-computer collaborative discourse and decision
+      making (HCCD). While many researchers and companies are focusing solely on Big Data Analytics to
+      harness the potential power in available massive, multisource, multivariate, evolving digital data,
+      many of these big data solutions don't effectively factor the human decision maker into their
+      proposed solution. The HCCD approach builds upon visual analytics and focuses on empowering the
+      decision maker through interactive visual analytic environments where visual cognition, guided
+      discovery, and non-digital human expertise and experience can be combined with state-of-the-art
+      analytical techniques. When we combine this approach with real-world application-driven research,
+      not only does the pace of scientific innovation accelerate, but impactful change occurs. This work
+      and these systems can be applied to social change, advancing engineering, and science and solving
+      some of the world's greatest challenges such as sustainability and security.
+    TXT
+    bio: <<~TXT.strip },
+      David Ebert is the Silicon Valley Professor of Electrical and Computer Engineering at Purdue
+      University, a Fellow of the IEEE, and director of the Visual Analytics for Command Control and
+      Interoperability Center (VACCINE). He performs research in visual analytics, volume rendering,
+      illustrative visualization, and procedural abstraction of complex, massive data. He is the
+      recipient of the 2017 IEEE Computer Society vgTC Technical Achievement Award for seminal
+      contributions in visual analytics.
+    TXT
+  { day: 3,
+    presenter:   'Gerard Jounghyun Kim',
+    affiliation: 'Korea University',
+    thumbnail:   'gerard_kim.jpg',
+    title:       'Requirements and Recent Directions in <br>Augmented Reality Visualization',
+    abstract: <<~TXT.strip,
+      The field of information visualization studies the interactive visual representations of data to
+      reinforce human cognition, thereby facilitate the discovery of new tacit knowledge and even amplify
+      human intelligence. Augmented reality (AR) shares the same objective and it can be treated as one
+      particular form of information visualization where the data are both the real objects and the
+      augmentations for them. In this talk, I will outline four main requirements for AR visualization:
+      (1) naturalness, (2) visibility, (3) persistence/stability, and (4) glass/HMD ergonomics.
+    TXT
+    bio: <<~TXT.strip }
+      Professor, Dept. of CSE, Korea University. Research Interests: VR/AR/MR, Human Computer Interaction, Computer music.
+      BS ECE, Carnegie Mellon University; MS/PhD, Univ. of Southern California.
+      Author of: <em>Designing Virtual Reality Systems</em> (Springer, 2005) and
+      <em>Human Computer Interaction</em> (CRC Press, 2015).
+    TXT
+]
+
+ROUTES_HOAM = [
+  { from: 'Incheon International Airport', to: 'Hoam Faculty House',
+    description: 'Take the <strong>#6017 Airport limousine bus</strong> at <strong>GATE 6B</strong> or <strong>13B</strong>. Get off at the last stop "Hoam Faculty House".',
+    url: 'http://www.airportlimousine.co.kr/eng/lbr/lbr03_3_6.php',
+    url_text: 'Airport Bus Time Table' },
+  { from: 'Nakseongdae Station', to: 'Hoam Faculty House',
+    description: 'Exit at gate 4. Go straight and turn left at the gas station corner. Take bus 02 in front of the bakery (Jean Boulagnerie). Get off at "Hoam Faculty House" (~5 min).',
+    url: 'https://www.google.com/maps/dir/37.4771974,126.9627278/37.4681199,126.9586284' }
+]
+
+# ── Template rendering context ─────────────────────────────────────────────────
+class Context
+  attr_accessor :_erbout, :_view_dir
+
+  def initialize(vars = {})
+    @_erbout   = ''
+    @_locals   = {}
+    @_view_dir = nil
+    vars.each { |k, v| instance_variable_set("@#{k}", v) }
+    # Sidebar variables available on all pages
+    @show_common_content = true
+    @upcoming_deadlines  = UPCOMING
+    @sponsors            = SPONSORS
+    @previous            = PREVIOUS
+    @channels            = CHANNELS
+  end
+
+  # ── ERB rendering ────────────────────────────────────────────────────────
+  def _render_template(file)
+    src = File.read(file, encoding: 'UTF-8')
+    # Rails templates use `<%= helper ... do %>` which is syntactically invalid
+    # in standard ERB (can't have `do` inside the << argument). Convert to `<% %>`.
+    # The helpers (content_tag, link_to) will concat their result to @_erbout directly.
+    src = src.gsub(/<%=\s*((?:content_tag|link_to)\b[^%]*?\bdo)\s*%>/, '<% \1 %>')
+    ERB.new(src, nil, '-', '@_erbout').result(binding)
+    @_erbout
+  end
+
+  def render(opts = {})
+    name   = (opts[:partial] || opts['partial']).to_s
+    locals = (opts[:locals] || opts['locals'] || {}).transform_keys(&:to_sym)
+
+    parts = name.split('/')
+    if parts.length >= 2
+      dir   = parts[0..-2].join('/')
+      fname = "_#{parts.last}.html.erb"
+      file  = File.join(VIEWS, dir, fname)
+    else
+      fname = "_#{name}.html.erb"
+      cur   = @_view_dir ? File.join(VIEWS, @_view_dir, fname) : nil
+      file  = [cur,
+               File.join(VIEWS, 'application', fname),
+               File.join(VIEWS, 'programs', fname)
+               ].compact.find { |f| File.exist?(f) }
+    end
+    raise "Partial not found: #{name}" unless file && File.exist?(file)
+
+    saved_out  = @_erbout
+    saved_dir  = @_view_dir
+    saved_loc  = @_locals
+
+    @_erbout   = ''
+    @_view_dir = File.dirname(file).delete_prefix("#{VIEWS}/")
+    @_locals   = locals
+
+    _render_template(file)
+
+    result     = @_erbout
+    @_erbout   = saved_out
+    @_view_dir = saved_dir
+    @_locals   = saved_loc
+
+    result
+  end
+
+  # Fall through to @_locals for partial local variables
+  def method_missing(name, *args, &block)
+    @_locals.key?(name.to_sym) ? @_locals[name.to_sym] : super
+  end
+
+  def respond_to_missing?(name, include_private = false)
+    @_locals.key?(name.to_sym) || super
+  end
+
+  # ── HTML helpers ─────────────────────────────────────────────────────────
+  def build_attrs(opts)
+    return '' if opts.nil? || opts.empty?
+    opts.map do |k, v|
+      next if v.nil? || v == false
+      key = k.to_s
+      val = if k == :target && v == :blank then '_blank'
+            elsif v.is_a?(Array) then v.compact.join(' ')
+            else v.to_s
+            end
+      " #{key}=\"#{CGI.escapeHTML(val)}\""
+    end.compact.join
+  end
+
+  def content_tag(tag, content_or_opts = nil, opts = {}, _escape = true, &block)
+    if block_given?
+      tag_opts = content_or_opts.is_a?(Hash) ? content_or_opts : opts
+      saved = @_erbout; @_erbout = ''
+      block.call
+      inner = @_erbout; @_erbout = saved
+      result = "<#{tag}#{build_attrs(tag_opts)}>#{inner}</#{tag}>"
+      @_erbout << result  # concat for <% content_tag do %> style (preprocessed from <%=)
+      result
+    else
+      if content_or_opts.is_a?(Hash)
+        tag_opts = content_or_opts; content = nil
+      else
+        content  = content_or_opts; tag_opts = opts
+      end
+      "<#{tag}#{build_attrs(tag_opts)}>#{content}</#{tag}>"
+    end
+  end
+
+  def link_to(name_or_url, url_or_opts = nil, opts = {}, &block)
+    if block_given?
+      href      = name_or_url
+      link_opts = url_or_opts.is_a?(Hash) ? url_or_opts : {}
+      saved = @_erbout; @_erbout = ''
+      block.call
+      inner = @_erbout; @_erbout = saved
+      result = "<a#{build_attrs({ href: href }.merge(link_opts))}>#{inner}</a>"
+      @_erbout << result  # concat for <% link_to do %> style (preprocessed from <%=)
+      result
+    elsif url_or_opts.nil? || url_or_opts.is_a?(Hash)
+      href = name_or_url.to_s
+      "<a href=\"#{CGI.escapeHTML(href)}\">#{name_or_url}</a>"
+    else
+      href = url_or_opts.to_s
+      "<a#{build_attrs({ href: href }.merge(opts))}>#{name_or_url}</a>"
+    end
+  end
+
+  def image_tag(src, opts = {})
+    s   = src.to_s
+    url = (s.start_with?('http', '//', '/') ? s : "#{BASE}/images/#{s}")
+    "<img src=\"#{url}\"#{build_attrs(opts)}>"
+  end
+
+  def image_url(src); (src.to_s.start_with?('/') ? src : "#{BASE}/images/#{src}"); end
+  def image_path(src); image_url(src); end
+
+  # ── Site-specific helpers ─────────────────────────────────────────────────
+  def subheader(title, tail = nil)
+    tail_html = tail ? "<div class=\"tail\"><a href=\"#{tail[:url]}\">#{tail[:text]}</a></div>" : ''
+    "<div class=\"subheader\">#{title}<div class=\"bullet\"></div>#{tail_html}</div>"
+  end
+
+  def subtitle(title)
+    "<div class=\"content_subtitle\">#{title}</div>"
+  end
+
+  def end_back_link(text, url)
+    "<div class=\"end_back_link\"><a href=\"#{url}\">&larr; #{text}</a></div>"
+  end
+
+  def submission_system_button
+    '' # Submission closed — conference was April 2017
+  end
+
+  # Programs-page helpers
+  def session(index, rowspan = 1)
+    name = Array(@session_ordered_names)[index]
+    "<td class='session' rowspan='#{rowspan}'><a href='#session_#{index}'>" \
+    "<div class='session'>Papers &amp; Notes</div>" \
+    "<div class='session_title'>#{name}</div></a></td>"
+  end
+
+  def cell_coffee(colspan = 1)
+    "<td class='coffee' colspan='#{colspan}'>Coffee break</td>"
+  end
+
+  # ── Route helpers ─────────────────────────────────────────────────────────
+  def root_path;              "#{BASE}/";                        end
+  def programs_path(o = {});  "#{BASE}/programs#{_anchor(o)}";   end
+  def awards_path;            "#{BASE}/awards";                  end
+  def cfp_path;               "#{BASE}/cfp";                     end
+  def cfp_paper_path;         "#{BASE}/cfp/paper";               end
+  def cfp_note_path;          "#{BASE}/cfp/visualization_notes"; end
+  def cfp_poster_path;        "#{BASE}/cfp/posters";             end
+  def cfp_contest_path;       "#{BASE}/cfp/contest";             end
+  def committee_path;         "#{BASE}/committee";               end
+  def venue_path(o = {});     "#{BASE}/venue#{_anchor(o)}";      end
+  def registration_path;      "#{BASE}/registration";            end
+  def keynote_path(id);       "#{BASE}/keynotes/#{id}";          end
+  def workshop_path(id);      "#{BASE}/workshops/#{id}";         end
+  def program_path(id);       "#{BASE}/programs/#{id}";          end
+  def program_download_path(name); "#{BASE}/files/pdf/#{name}.pdf"; end
+
+  private
+
+  def _anchor(opts)
+    opts[:anchor] ? "##{opts[:anchor]}" : ''
+  end
+end
+
+# ── Layout wrapper ─────────────────────────────────────────────────────────────
+def make_page(title:, content:, banner_image: 'dongdaemun.jpg', banner_size: :short)
+  banner_class = banner_size == :tall ? 'tall' : 'short'
+  img_src      = "#{BASE}/images/#{banner_image}"
+  plain_title  = title.to_s.gsub(/<[^>]*>/, '').strip
+
+  sidebar_ctx  = Context.new
+  sidebar      = sidebar_ctx.render(partial: 'application/left_common_content')
+
+  title_h2 = title ? "<h2>#{title}</h2>" : ''
+  venue_strip = banner_size == :tall ?
+    '<span class="text_strip small">Hoam Faculty House @ Seoul National University</span>' : ''
+
+  <<~HTML
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>IEEE PacificVis 2017#{plain_title.empty? ? '' : " \u2013 #{plain_title}"}</title>
+      <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700" rel="stylesheet">
+      <link rel="stylesheet" href="#{BASE}/assets/styles.css">
+      <link rel="stylesheet" href="#{BASE}/assets/programs.css">
+    </head>
+    <body>
+      <div id="wrap">
+        <div id="header">
+          <div class="strip"></div>
+          <div id="title">
+            <a href="#{BASE}/"><img src="#{BASE}/images/pacific_vis_logo.svg" alt="IEEE PacificVis 2017"></a>
+          </div>
+          <ul id="gnb">
+            <li><a href="#{BASE}/">Home</a></li>
+            <li><a href="#{BASE}/programs">Programs</a></li>
+            <li><a href="#{BASE}/awards">Awards</a></li>
+            <li><a href="#{BASE}/cfp">Calls</a></li>
+            <li><a href="#{BASE}/committee">Organizers</a></li>
+            <li><a href="#{BASE}/venue">Travel+Venue</a></li>
+          </ul>
+        </div>
+        <div id="main">
+          <div id="main_image" class="#{banner_class}">
+            <img src="#{img_src}" alt="PacificVis 2017 Seoul">
+            <div id="text_strips" class="#{banner_class}">
+              <span class="text_strip big">SEOUL | KOREA</span><br>
+              <span class="text_strip big">APRIL 18-21, 2017</span><br>
+              #{venue_strip}
+            </div>
+          </div>
+          <table id="home_main_wrapper">
+            <tr>
+              <td id="home_left">#{sidebar}</td>
+              <td id="home_main">
+                #{title_h2}
+                #{content}
+              </td>
+            </tr>
+          </table>
+        </div>
+        <div id="footer">
+          <div id="copyright">Copyright &copy; 2016 IEEE PacificVis. All Rights Reserved.</div>
+        </div>
+      </div>
+    </body>
+    </html>
+  HTML
+end
+
+# ── Rendering helpers ──────────────────────────────────────────────────────────
+def render_view(view_dir, template_name, vars = {})
+  ctx = Context.new(vars)
+  ctx._view_dir = view_dir
+  file = File.join(VIEWS, view_dir, "#{template_name}.html.erb")
+  ctx._erbout = ''
+  ctx._render_template(file)
+  ctx._erbout
+end
+
+def save_page(out_rel, html)
+  path = File.join(OUTPUT, out_rel)
+  FileUtils.mkdir_p(File.dirname(path))
+  File.write(path, html, encoding: 'UTF-8')
+  puts "  #{out_rel}"
+end
+
+def build_page(out_rel, view_dir:, template:, title:, vars: {},
+               banner_image: 'dongdaemun.jpg', banner_size: :short)
+  content = render_view(view_dir, template, vars)
+  html    = make_page(title: title, content: content,
+                      banner_image: banner_image, banner_size: banner_size)
+  save_page(out_rel, html)
+rescue => e
+  warn "  ERROR rendering #{out_rel}: #{e.message}"
+  warn "    #{e.backtrace.first(3).join("\n    ")}"
+end
+
+# ═════════════════════════════════════════════════════════════════════════════
+puts "Building PacificVis 2017 static site"
+puts "Output : #{OUTPUT}"
+puts "Base URL: #{BASE}\n\n"
+
+FileUtils.rm_rf(OUTPUT)
+FileUtils.mkdir_p(OUTPUT)
+
+# ── Step 1: Compile CSS ────────────────────────────────────────────────────────
+puts "[1/5] Compiling CSS..."
+FileUtils.mkdir_p(File.join(OUTPUT, 'assets'))
+
+if SASS_BIN
+  %w[styles programs].each do |name|
+    src = File.join(ASSETS, "stylesheets/#{name}.scss")
+    dst = File.join(OUTPUT, "assets/#{name}.css")
+    system("ruby #{SASS_BIN} #{src} #{dst}")
+  end
+  puts "      SCSS compiled via #{SASS_BIN}"
+else
+  puts "      WARNING: sass not found. CSS not generated."
+end
+# strip.png is referenced by styles.css via url("strip.png")
+FileUtils.cp(File.join(ASSETS, 'images/strip.png'), File.join(OUTPUT, 'assets/strip.png'))
+
+# ── Step 2: Copy static assets ────────────────────────────────────────────────
+puts "[2/5] Copying assets..."
+FileUtils.cp_r(File.join(ASSETS, 'images/.'), File.join(OUTPUT, 'images'))
+FileUtils.cp_r(File.join(PUBLIC, 'files'),     File.join(OUTPUT, 'files'))
+FileUtils.cp_r(File.join(PUBLIC, 'showcases'), File.join(OUTPUT, 'showcases'))
+FileUtils.cp(File.join(PUBLIC, 'favicon.ico'), File.join(OUTPUT, 'favicon.ico')) rescue nil
+# PDFs stored in app/data/pdf/
+pdf_src = File.join(DATA, 'pdf')
+if File.directory?(pdf_src)
+  FileUtils.mkdir_p(File.join(OUTPUT, 'files/pdf'))
+  FileUtils.cp_r("#{pdf_src}/.", File.join(OUTPUT, 'files/pdf'))
+end
+
+# ── Step 3: Render main pages ─────────────────────────────────────────────────
+puts "[3/5] Rendering pages..."
+
+# Home
+build_page('index.html',
+  view_dir: 'single_page', template: 'home',
+  title: 'Welcome to IEEE Pacific Visualization 2017!',
+  banner_image: 'hoam_main.jpg', banner_size: :tall,
+  vars: {
+    general_chairs: CHAIR_GROUPS.find { |g| g.name == 'General Conference Co-Chairs' }&.chairs || []
+  })
+
+# Programs
+build_page('programs/index.html',
+  view_dir: 'programs', template: 'index',
+  title: 'Programs',
+  vars: {
+    papers: PAPERS, posters: POSTERS, notes: NOTES, contests: CONTESTS,
+    session_dict: SESSION_DICT,
+    session_ordered_names: SESSION_ORDERED,
+    session_rows: SESSION_ROWS,
+    keynotes: KEYNOTES,
+    workshops: WORKSHOPS
+  })
+
+# Awards
+build_page('awards/index.html',
+  view_dir: 'programs', template: 'awards',
+  title: 'Award Winners for PacificVis 2017',
+  vars: {
+    awards: {
+      papers: {
+        best:      PAPERS.select { |p| p[:id] == 'papers_1490' },
+        honorable: [2379, 1685, 2984].map { |n| PAPERS.find { |p| p[:id] == "papers_#{n}" } }.compact
+      },
+      notes: {
+        best:      NOTES.select { |p| p[:id] == 'notes-112' },
+        honorable: []
+      },
+      posters: {
+        best:      POSTERS.select { |p| p[:id] == 'posters-120' },
+        honorable: POSTERS.select { |p| p[:id] == 'posters-121' }
+      },
+      contest: {
+        best:      CONTESTS.select { |p| p[:id] == 'contest-108' },
+        honorable: CONTESTS.select { |p| p[:id] == 'contest-106' }
+      }
+    }
+  })
+
+# CFP
+build_page('cfp/index.html',
+  view_dir: 'call_for_participation', template: 'index',
+  title: 'Call for Participation',
+  vars: {
+    deadlines: {
+      papers:  get_deadlines('papers'),
+      notes:   get_deadlines('notes'),
+      contest: get_deadlines('contest'),
+      posters: get_deadlines('posters')
+    }
+  })
+
+build_page('cfp/paper/index.html',
+  view_dir: 'call_for_participation', template: 'paper',
+  title: 'Call for Papers',
+  vars: {
+    topics: TOPICS.keys.map { |k| { category: k, list: TOPICS[k] } },
+    deadlines: get_deadlines('papers'),
+    formatting_guideline: 'http://junctionpublishing.org/vgtc/Track/pacvis.html'
+  })
+
+build_page('cfp/visualization_notes/index.html',
+  view_dir: 'call_for_participation', template: 'visualization_notes',
+  title: 'Call for Visualization Notes',
+  vars: {
+    deadlines: get_deadlines('notes'),
+    note_committee: NOTE_PC,
+    formatting_guideline: 'http://junctionpublishing.org/vgtc/Track/pacvis.html'
+  })
+
+build_page('cfp/posters/index.html',
+  view_dir: 'call_for_participation', template: 'posters',
+  title: 'Call for Posters',
+  vars: { deadlines: get_deadlines('posters') })
+
+build_page('cfp/contest/index.html',
+  view_dir: 'call_for_participation', template: 'contest',
+  title: 'Call for Visual Storytelling Contest',
+  vars: { deadlines: get_deadlines('contest') })
+
+# Committee
+build_page('committee/index.html',
+  view_dir: 'single_page', template: 'committee',
+  title: 'Conference Organizers',
+  vars: { chair_groups: CHAIR_GROUPS,
+          program_committee: PAPER_PC,
+          note_committee: NOTE_PC })
+
+# Venue
+build_page('venue/index.html',
+  view_dir: 'single_page', template: 'venue',
+  title: 'PacificVis 2017 @ Seoul National University',
+  vars: { routes_hoam: ROUTES_HOAM, accomodations: ACCOMMODATIONS })
+
+# Registration
+build_page('registration/index.html',
+  view_dir: 'single_page', template: 'registration',
+  title: 'Registration',
+  vars: { fees: FEES })
+
+# Keynotes
+KEYNOTES.each do |k|
+  build_page("keynotes/#{k[:day]}/index.html",
+    view_dir: 'single_page', template: 'keynote',
+    title: "[Keynote] #{k[:title].gsub(/<[^>]*>/, '')}",
+    vars: { keynote: k })
+end
+
+# Workshops
+WORKSHOPS.each_value do |talks|
+  talks.each do |w|
+    build_page("workshops/#{w['id']}/index.html",
+      view_dir: 'single_page', template: 'workshop',
+      title: w['title'],
+      vars: { workshop: w })
+  end
+end
+
+# ── Step 4: Render individual program pages ────────────────────────────────────
+puts "[4/5] Rendering #{ALL_PROGRAMS.size} program pages..."
+ALL_PROGRAMS.each do |prog|
+  build_page("programs/#{prog[:id]}/index.html",
+    view_dir: 'programs', template: 'program',
+    title: prog[:title],
+    vars: { program: prog })
+end
+
+# ── Step 5: Finalize ──────────────────────────────────────────────────────────
+puts "[5/5] Finalizing..."
+File.write(File.join(OUTPUT, '.nojekyll'), '')
+
+html_count = Dir.glob(File.join(OUTPUT, '**/*.html')).size
+puts "\nDone! #{html_count} HTML pages in #{OUTPUT}"
+puts "Next: push to GitHub and enable Pages → /docs folder."

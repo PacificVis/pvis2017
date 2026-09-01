@@ -1,0 +1,176 @@
+{
+  "conferences":[
+    {
+      "year": 2008,
+      "name": "PacificVis 2008",
+      "submitted": 99,
+      "accepted": 30,
+      "rate": 30.3,
+      "location": "Kyoto, Japan",
+      "latitude": 35.011636,
+      "longitude": 135.768029,
+      "attendance": 112
+    },
+    {
+      "year": 2009,
+      "name": "PacificVis 2009",
+      "submitted": 66,
+      "accepted": 28,
+      "rate": 39.3,
+      "location": "Beijing, China",
+      "latitude": 39.904211,
+      "longitude": 116.407395,
+      "attendance": 100
+    },
+    {
+      "year": 2010,
+      "name": "PacificVis 2010",
+      "submitted": 84,
+      "accepted": 27,
+      "rate": 32.1,
+      "location": "Taipei, Taiwan",
+      "latitude": 25.032969,
+      "longitude": 121.565418,
+      "attendance": 139
+    },
+    {
+      "year": 2011,
+      "name": "PacificVis 2011",
+      "submitted": 81,
+      "accepted": 26,
+      "rate": 32.1,
+      "location": "Hong Kong",
+      "latitude": 22.396428,
+      "longitude": 114.109497,
+      "attendance": 100
+    },
+    {
+      "year": 2012,
+      "name": "PacificVis 2012",
+      "submitted": 89,
+      "accepted": 30,
+      "rate": 33.7,
+      "location": "Songdo, Korea",
+      "latitude": 37.383912,
+      "longitude": 126.643855,
+      "attendance": 91
+    },
+    {
+      "year": 2013,
+      "name": "PacificVis 2013",
+      "submitted": 118,
+      "accepted": 34,
+      "rate": 28.8,
+      "location": "Sydney, Australia",
+      "latitude": -33.868820,
+      "longitude": 151.209296,
+      "attendance": 70
+    },
+    {
+      "year": 2014,
+      "name": "PacificVis 2014",
+      "submitted": 99,
+      "accepted": 29,
+      "rate": 29.2,
+      "location": "Yokohama, Japan",
+      "latitude": 35.443708,
+      "longitude": 139.638026,
+      "attendance": 147
+    },
+    {
+      "year": 2015,
+      "name": "PacificVis 2015",
+      "submitted": 92,
+      "accepted": 28,
+      "rate": 30.4,
+      "location": "Hangzhou, China",
+      "latitude": 30.274085,
+      "longitude": 120.155070,
+      "attendance": 212
+    },
+    {
+      "year": 2016,
+      "name": "PacificVis 2016",
+      "submitted": 92,
+      "accepted": 28,
+      "rate": 29.9,
+      "location": "Taipei, Taiwan",
+      "latitude": 25.032969,
+      "longitude": 121.565418,
+      "attendance": 171
+    },
+    {
+      "year": 2017,
+      "name": "PacificVis 2017",
+      "submitted": 99,
+      "accepted": 29,
+      "rate": 29.3,
+      "location": "Seoul, Korea",
+      "latitude": 37.566535,
+      "longitude": 126.977969,
+      "attendance": 129
+    }
+  ],
+  "papers" : [{"count": 159, "name": "Cui et al. (2010) Context preserving dynamic word cloud visualization", "authors": ["Weiwei Cui", "Yingcai Wu", "Shixia Liu", "Furu Wei", "Michelle X. Zhou", "Huamin Qu"]}, {"count": 88, "name": "Thom et al. (2012) Spatiotemporal anomaly detection through visual analysis of geolocated Twitter messages", "authors": ["Dennis Thom", "Harald Bosch", "Steffen Koch", "Michael W\u00f6rner", "Thomas Ertl"]}, {"count": 82, "name": "Itoh et al. (2009) A hybrid space-filling and force-directed layout method for visualizing multiple-category graphs", "authors": ["Takayuki Itoh", "Chris Muelder", "Kwan-Liu Ma", "Jun Sese"]}, {"count": 81, "name": "Gansner et al. (2010) GMap: Visualizing graphs and clusters as maps", "authors": ["Emden R. Gansner", "Yifan Hu", "Stephen Kobourov"]}, {"count": 77, "name": "Javed et al. (2012) Exploring the design space of composite visualization", "authors": ["Waqas Javed", "Niklas Elmqvist"]}, {"count": 65, "name": "Correa et al. (2009) Visibility-driven transfer functions", "authors": ["Carlos D. Correa", "Kwan-Liu Ma"]}, {"count": 55, "name": "Lex et al. (2010) Caleydo: Design and evaluation of a visual analysis framework for gene expression data in its biological context", "authors": ["Alexander Lex", "Marc Streit", "Ernst Kruijff", "Dieter Schmalstieg"]}, {"count": 49, "name": "Pra\u00dfni et al. (2010) Shape-based transfer functions for volume visualization", "authors": ["J\u00f6rg-Stefan Pra\u00dfni", "Timo Ropinski", "J\u00f6rg Mensmann", "Klaus Hinrichs"]}, {"count": 48, "name": "Ropinski et al. (2010) Interactive volumetric lighting simulating scattering and shadowing", "authors": ["Timo Ropinski", "Christian D\u00f6ring", "Christof Rezk-Salama"]}, {"count": 46, "name": "Haidacher et al. (2010) Volume visualization based on statistical transfer-function spaces", "authors": ["Martin Haidacher", "Daniel Patel", "Stefan Bruckner", "Armin Kanitsar", "M. Eduard Gr\u00f6ller"]}],
+  "keywords": [
+    {   "count": 202, "name": "Data visualization" },
+    {   "count": 145, "name": "Visualization" },
+    {   "count": 51, "name": "Rendering" },
+    {   "count": 46, "name": "Layout" },
+    {   "count": 32, "name": "Image color analysis" },
+    {   "count": 30, "name": "Computer graphics" },
+    {   "count": 29, "name": "Computational modeling" },
+    {   "count": 26, "name": "Shape" },
+    {   "count": 25, "name": "Clustering algorithms" },
+    {   "count": 24, "name": "3-dimensional displays" }
+  ],
+  "authors": [
+    {
+      "name": "Kwan-Liu Ma",
+      "count": 21
+    },
+    {
+      "name": "Xiaoru Yuan",
+      "count": 17
+    },
+    {
+      "name": "Han-Wei Shen",
+      "count": 17
+    },
+    {
+      "name": "Thomas Ertl",
+      "count": 11
+    },
+    {
+      "name": "Huamin Qu",
+      "count": 9
+    }
+  ],
+  "countries": [
+    {
+      "name": "United States",
+      "count": 126
+    },
+    {
+      "name": "Germany",
+      "count": 70
+    },
+    {
+      "name": "China",
+      "count": 52
+    },
+    {
+      "name": "Japan",
+      "count": 22
+    },
+    {
+      "name": "Netherlands",
+      "count": 17
+    },
+    {"name": "Australia", "count": 16},
+    {"name": "France", "count": 14},
+    {"name": "Austria", "count": 12},
+    {"name": "Canada", "count": 10},
+    {"name": "Norway", "count": 9}
+  ]
+}
